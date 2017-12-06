@@ -1,11 +1,10 @@
-from binascii import hexlify, unhexlify
+import json
+import struct
 import time
 from calendar import timegm
 from datetime import datetime
-import struct
+from binascii import hexlify, unhexlify
 from collections import OrderedDict
-import json
-
 from .objecttypes import object_type
 
 timeformat = '%Y-%m-%dT%H:%M:%S%Z'
@@ -50,7 +49,7 @@ def JsonObj(data):
 
 class Uint8():
     def __init__(self, d):
-        self.data = d
+        self.data = int(d)
 
     def __bytes__(self):
         return struct.pack("<B", self.data)
@@ -105,7 +104,7 @@ class Uint64():
 
 class Varint32():
     def __init__(self, d):
-        self.data = d
+        self.data = int(d)
 
     def __bytes__(self):
         return varint(self.data)
@@ -116,7 +115,7 @@ class Varint32():
 
 class Int64():
     def __init__(self, d):
-        self.data = d
+        self.data = int(d)
 
     def __bytes__(self):
         return struct.pack("<q", self.data)
@@ -200,14 +199,10 @@ class Array():
     def __str__(self):
         r = []
         for a in self.data:
-            if isinstance(a, ObjectId):
-                r.append(str(a))
-            elif isinstance(a, VoteId):
-                r.append(str(a))
-            elif isinstance(a, String):
-                r.append(str(a))
-            else:
+            try:
                 r.append(JsonObj(a))
+            except:
+                r.append(str(a))
         return json.dumps(r)
 
 
@@ -238,7 +233,7 @@ class Bool(Uint8):  # Bool = Uint8
         super().__init__(d)
 
     def __str__(self):
-        return True if self.data else False
+        return json.dumps(True) if self.data else json.dumps(False)
 
 
 class Set(Array):  # Set = Array
@@ -285,7 +280,7 @@ class Static_variant():
         return varint(self.type_id) + bytes(self.data)
 
     def __str__(self):
-        return {self._type_id: str(self.data)}
+        return json.dumps([self.type_id, self.data.json()])
 
 
 class Map():
@@ -333,7 +328,7 @@ class VoteId():
 
 
 class ObjectId():
-    """ Encodes object/protocol ids
+    """ Encodes protocol ids - serializes to the *instance* only!
     """
     def __init__(self, object_str, type_verify=None):
         if len(object_str.split(".")) == 3:
@@ -355,3 +350,41 @@ class ObjectId():
 
     def __str__(self):
         return self.Id
+
+
+class FullObjectId():
+    """ Encodes object ids - serializes to a full object id
+    """
+    def __init__(self, object_str):
+        if len(object_str.split(".")) == 3:
+            space, type, id = object_str.split(".")
+            self.space = int(space)
+            self.type = int(type)
+            self.id = int(id)
+            self.instance = Id(int(id))
+            self.Id = object_str
+        else:
+            raise Exception("Object id is invalid")
+
+    def __bytes__(self):
+        return (
+            self.space << 56 | self.type << 48 | self.id
+        ).to_bytes(8, byteorder="little", signed=False)
+
+    def __str__(self):
+        return self.Id
+
+
+class Enum8(Uint8):
+    def __init__(self, selection):
+        assert selection in self.options or \
+            isinstance(selection, int) and len(self.options) < selection, \
+            "Options are %s. Given '%s'" % (
+                self.options, selection)
+        if selection in self.options:
+            super(Enum8, self).__init__(self.options.index(selection))
+        else:
+            super(Enum8, self).__init__(selection)
+
+    def __str__(self):
+        return str(self.options[self.data])
